@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>My Reels</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="My Reels">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px); --accent: #ff2d55; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden;
+    -webkit-user-select: none; user-select: none; }
+
+  /* ---------- panes ---------- */
+  #panes { position: fixed; inset: 0; display: flex; }
+  #panes.dual.stack { flex-direction: column; }
+  .pane { position: relative; flex: 1; min-width: 0; min-height: 0; background: #000; }
+  #panes:not(.dual) .pane:nth-child(2) { display: none; }
+  #panes.dual .pane + .pane { border-left: 2px solid #222; }
+  #panes.dual.stack .pane + .pane { border-left: none; border-top: 2px solid #222; }
+
+  .feed { position: absolute; inset: 0; overflow-y: scroll; scroll-snap-type: y mandatory;
+    overscroll-behavior: contain; scrollbar-width: none; }
+  .feed::-webkit-scrollbar { display: none; }
+
+  .slide { position: relative; height: 100%; width: 100%; scroll-snap-align: start;
+    scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .slide video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .fill .slide video { object-fit: cover; }
+
+  .pause-icon { position: absolute; inset: 0; margin: auto; width: 72px; height: 72px; border-radius: 50%;
+    background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; pointer-events: none; }
+  .slide.paused .pause-icon { display: flex; }
+  .pause-icon::after { content: ""; margin-left: 7px; border-left: 26px solid #fff;
+    border-top: 16px solid transparent; border-bottom: 16px solid transparent; }
+
+  .progress { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-b) + 2px); height: 3px; background: rgba(255,255,255,.2); }
+  .stack .pane:first-child .progress { bottom: 0; }
+  .progress > div { height: 100%; width: 0; background: #fff; }
+
+  .meta { position: absolute; left: 12px; right: 70px; bottom: calc(var(--safe-b) + 20px);
+    font-size: 14px; text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none; }
+  .meta b { display: block; font-size: 15px; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta span { opacity: .75; font-size: 12px; }
+
+  .rail { position: absolute; right: 8px; bottom: calc(var(--safe-b) + 80px); display: flex;
+    flex-direction: column; gap: 14px; align-items: center; }
+  .rail button { width: 46px; height: 46px; border-radius: 50%; border: none; background: rgba(0,0,0,.4);
+    color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+  .rail button svg { width: 24px; height: 24px; }
+  .rail button.liked { color: var(--accent); }
+  .rail button.sound.on { background: rgba(255,255,255,.9); color: #000; }
+
+  /* compact controls when two panes share the screen */
+  .dual:not(.float) .rail { gap: 10px; right: 5px; bottom: calc(var(--safe-b) + 54px); }
+  .dual:not(.float) .rail button { width: 36px; height: 36px; }
+  .dual:not(.float) .rail button svg { width: 19px; height: 19px; }
+  .dual:not(.float) .meta { left: 8px; right: 46px; bottom: calc(var(--safe-b) + 14px); }
+  .dual:not(.float) .meta b { font-size: 12px; }
+  .dual:not(.float) .meta span { display: none; }
+
+  /* floating mini screen (FaceTime-style) */
+  #panes.dual.float { display: block; }
+  #panes.dual.float .pane:first-child { position: absolute; inset: 0; }
+  #panes.dual.float .pane + .pane { position: fixed; left: 0; top: 0; z-index: 8; border: none;
+    width: var(--mini-w, 32vw); height: calc(var(--mini-w, 32vw) * 16 / 9);
+    border-radius: 14px; overflow: hidden; box-shadow: 0 8px 28px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.15);
+    touch-action: none; will-change: transform; }
+  #panes.dual.float .pane + .pane.snapping { transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+  .float .pane + .pane .rail, .float .pane + .pane .meta, .float .pane + .pane .chip,
+  .float .pane + .pane .pempty p, .float .pane + .pane .pempty .pill { display: none; }
+  .float .pane + .pane .pempty h2 { font-size: 12px; font-weight: 600; opacity: .7; }
+  .float .pane + .pane .progress { bottom: 0; }
+  .float .pane + .pane .slide video { object-fit: cover; }
+  .float .pane + .pane .pause-icon { width: 40px; height: 40px; }
+  .float .pane + .pane .pause-icon::after { border-left-width: 15px; border-top-width: 9px; border-bottom-width: 9px; margin-left: 4px; }
+  .mini-layer { display: none; position: absolute; inset: 0; z-index: 4; touch-action: none; cursor: grab; }
+  .float .pane + .pane .mini-layer { display: block; }
+  .mini-controls { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: repeat(3, 30px);
+    gap: 8px; place-content: center; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .mini-controls.show { opacity: 1; pointer-events: auto; }
+  .mini-controls button { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(255,255,255,.22);
+    color: #fff; display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; font-size: 18px; font-weight: 700; line-height: 1; }
+  .mini-controls button.on { background: #fff; color: #000; }
+  .mini-handle { display: none; position: absolute; z-index: 6; width: 34px; height: 34px; touch-action: none; cursor: nwse-resize; }
+  .float .pane + .pane .mini-handle { display: block; }
+  .mini-handle::after { content: ""; position: absolute; width: 14px; height: 14px; border: 3px solid rgba(255,255,255,.85);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  .mini-handle.active::after { border-color: #fff; }
+  .mini-handle[data-pos="bl"] { left: 0; bottom: 0; cursor: nesw-resize; }
+  .mini-handle[data-pos="bl"]::after { left: 7px; bottom: 9px; border-top: none; border-right: none; border-bottom-left-radius: 5px; }
+  .mini-handle[data-pos="br"] { right: 0; bottom: 0; }
+  .mini-handle[data-pos="br"]::after { right: 7px; bottom: 9px; border-top: none; border-left: none; border-bottom-right-radius: 5px; }
+  .mini-handle[data-pos="tl"] { left: 0; top: 0; }
+  .mini-handle[data-pos="tl"]::after { left: 7px; top: 7px; border-bottom: none; border-right: none; border-top-left-radius: 5px; }
+  .mini-handle[data-pos="tr"] { right: 0; top: 0; cursor: nesw-resize; }
+  .mini-handle[data-pos="tr"]::after { right: 7px; top: 7px; border-bottom: none; border-left: none; border-top-right-radius: 5px; }
+  .mini-controls svg { width: 16px; height: 16px; }
+  .mini-name { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 5; font-size: 11px; font-weight: 600;
+    text-shadow: 0 1px 3px rgba(0,0,0,.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .mini-controls.show ~ .mini-name { opacity: 1; }
+  .dual.stack .pane:first-child .rail { bottom: 40px; }
+  .dual.stack .pane:first-child .meta { bottom: 12px; }
+
+  .chip { position: absolute; z-index: 6; top: calc(var(--safe-t) + 58px); left: 10px; border: none;
+    border-radius: 999px; padding: 6px 11px; font-size: 13px; font-weight: 600; color: #fff;
+    background: rgba(0,0,0,.5); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .chip .count { opacity: .6; font-weight: 500; margin-left: 4px; }
+  .dual.stack .pane + .pane .chip { top: 10px; }
+
+  .pempty { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 12px; padding: 24px; text-align: center; }
+  .pempty h2 { margin: 0; font-size: 20px; }
+  .pempty p { margin: 0; opacity: .7; max-width: 280px; line-height: 1.45; font-size: 14px; }
+  .dual .pempty h2 { font-size: 16px; }
+  .dual .pempty p { font-size: 12px; }
+
+  /* ---------- top bar ---------- */
+  #topbar { position: fixed; top: 0; left: 0; right: 0; padding: calc(var(--safe-t) + 10px) 12px 10px;
+    display: flex; justify-content: space-between; align-items: center; z-index: 10; gap: 8px;
+    background: linear-gradient(rgba(0,0,0,.6), transparent); pointer-events: none; }
+  #topbar > * { pointer-events: auto; }
+  #topbar h1 { margin: 0; font-size: 17px; font-weight: 700; white-space: nowrap; }
+  #topbar .actions { display: flex; gap: 6px; }
+  .pill { border: none; border-radius: 999px; padding: 8px 11px; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,.16); color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .pill.primary { background: var(--accent); }
+  .pill.on { background: #fff; color: #000; }
+  .pill svg { width: 15px; height: 15px; flex: none; }
+
+  #toast { position: fixed; left: 50%; top: calc(var(--safe-t) + 100px); transform: translateX(-50%);
+    background: rgba(30,30,30,.94); padding: 10px 16px; border-radius: 10px; font-size: 14px;
+    z-index: 60; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; }
+
+  /* ---------- bottom sheet ---------- */
+  #sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; display: none; }
+  #sheet { position: fixed; left: 0; right: 0; bottom: 0; background: #1c1c1e; border-radius: 16px 16px 0 0;
+    padding: 18px 18px calc(var(--safe-b) + 18px); z-index: 41; transform: translateY(110%); transition: transform .22s;
+    max-height: 80vh; overflow-y: auto; }
+  #sheet.open { transform: none; }
+  #sheet h3 { margin: 0 0 6px; font-size: 17px; }
+  #sheet p { margin: 0 0 14px; opacity: .7; font-size: 14px; line-height: 1.4; }
+  #sheet p:empty { display: none; }
+  #sheet .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  #sheet .row .pill { flex: 1 1 40%; justify-content: center; padding: 13px; font-size: 15px; }
+  #sheet .row .pill.current { outline: 2px solid #fff; }
+  #sheet input { width: 100%; font-size: 17px; padding: 12px; border-radius: 10px; border: 1px solid #3a3a3c;
+    background: #2c2c2e; color: #fff; margin-bottom: 14px; -webkit-user-select: text; user-select: text; }
+
+  #loading { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    z-index: 50; background: rgba(0,0,0,.6); font-size: 15px; }
+
+  #install { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 12px); z-index: 35;
+    background: #1c1c1e; border-radius: 14px; padding: 14px 44px 14px 16px; font-size: 14px; line-height: 1.45;
+    display: none; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+  #install b { display: block; font-size: 15px; margin-bottom: 2px; }
+  #install button { position: absolute; top: 8px; right: 8px; background: none; border: none; color: #fff;
+    font-size: 22px; opacity: .6; width: 32px; height: 32px; cursor: pointer; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <h1>My Reels</h1>
+  <div class="actions">
+    <button class="pill" id="splitBtn" aria-pressed="false" aria-label="Split screen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M12 4v16"/></svg>Split
+    </button>
+    <button class="pill" id="autoBtn" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>Auto
+    </button>
+    <button class="pill" id="menuBtn" aria-label="Options">•••</button>
+    <button class="pill primary" id="addBtn" aria-label="Add videos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add
+    </button>
+  </div>
+</div>
+
+<div id="panes"></div>
+
+<div id="toast"></div>
+<div id="loading">Saving videos…</div>
+
+<div id="sheet-bg"></div>
+<div id="sheet" role="dialog" aria-modal="true">
+  <h3 id="sheetTitle"></h3>
+  <p id="sheetText"></p>
+  <input id="sheetInput" type="text" maxlength="40" style="display:none" autocomplete="off">
+  <div class="row" id="sheetRow"></div>
+</div>
+
+<div id="install">
+  <b>Install My Reels</b>
+  Tap the Share button in Safari, then <b style="display:inline">Add to Home Screen</b>. It opens full-screen like a normal app.
+  <button id="installClose" aria-label="Close">×</button>
+</div>
+
+<input type="file" id="picker" accept="video/*" multiple>
+
+<script>
+(() => {
+  const DB_NAME = 'my-reels', STORE = 'videos';
+  const $ = id => document.getElementById(id);
+  const panesEl = $('panes'), picker = $('picker'), toastEl = $('toast'), loading = $('loading');
+
+  // ---------- settings & folders (small, kept in localStorage) ----------
+  function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+  let folders = load('reels-folders', [{ id: 'f1', name: 'Folder 1' }, { id: 'f2', name: 'Folder 2' }]);
+  const settings = Object.assign({ dual: false, layout: 'side', auto: false, fill: false, paneFolders: ['f1', 'f2'] },
+                                 load('reels-settings', {}));
+  // carry over settings from the earlier version
+  try {
+    if (localStorage.getItem('reels-auto') === '1') { settings.auto = true; localStorage.removeItem('reels-auto'); }
+    if (localStorage.getItem('reels-fill') === '1') { settings.fill = true; localStorage.removeItem('reels-fill'); }
+  } catch (e) {}
+  function save() {
+    try { localStorage.setItem('reels-folders', JSON.stringify(folders)); localStorage.setItem('reels-settings', JSON.stringify(settings)); } catch (e) {}
+  }
+  const folderName = id => (folders.find(f => f.id === id) || {}).name || 'Folder';
+
+  // ---------- video storage (IndexedDB) ----------
+  let db = null, videos = [];
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      let req; try { req = indexedDB.open(DB_NAME, 1); } catch (e) { return reject(e); }
+      req.onupgradeneeded = () => { const d = req.result; if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' }); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  const store = mode => db.transaction(STORE, mode).objectStore(STORE);
+  const wrap = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const getAll = () => wrap(store('readonly').getAll());
+  const put = v => wrap(store('readwrite').put(v));
+  const del = id => wrap(store('readwrite').delete(id));
+
+  // ---------- small UI helpers ----------
+  let toastTimer;
+  function toast(msg, ms = 2000) {
+    toastEl.textContent = msg; toastEl.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+  }
+  function sheet(title, text, buttons, input) {
+    $('sheetTitle').textContent = title;
+    $('sheetText').textContent = text || '';
+    const inp = $('sheetInput');
+    inp.style.display = input ? 'block' : 'none';
+    if (input) { inp.value = input.value || ''; inp.placeholder = input.placeholder || ''; }
+    const row = $('sheetRow'); row.innerHTML = '';
+    buttons.forEach(b => {
+      const el = document.createElement('button');
+      el.className = 'pill' + (b.primary ? ' primary' : '') + (b.current ? ' current' : '');
+      el.textContent = b.label;
+      el.onclick = () => { const val = inp.value.trim(); closeSheet(); b.onClick && b.onClick(val); };
+      row.appendChild(el);
+    });
+    $('sheet-bg').style.display = 'block';
+    requestAnimationFrame(() => $('sheet').classList.add('open'));
+    if (input) setTimeout(() => inp.focus(), 250);
+  }
+  function closeSheet() { $('sheet').classList.remove('open'); $('sheet-bg').style.display = 'none'; $('sheetInput').blur(); }
+  $('sheet-bg').onclick = closeSheet;
+  $('sheetInput').addEventListener('keydown', e => { if (e.key === 'Enter') { const b = $('sheetRow').querySelector('.primary'); b && b.click(); } });
+
+  const fmtSize = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(1) + ' MB';
+  const niceName = n => n.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+
+  const icons = {
+    heart: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.3 2.3 4 6.2 4c2.2 0 3.6 1.2 4.3 2.4h3C14.2 5.2 15.6 4 17.8 4 21.7 4 23.7 8.3 22 11.7 19.5 16.4 12 21 12 21z"/></svg>',
+    soundOn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
+    soundOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>',
+    next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+    swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>'
+  };
+
+  // ---------- a pane = one swipeable feed showing one folder ----------
+  class Pane {
+    constructor(idx) {
+      this.idx = idx; this.muted = true; this.order = []; this.urls = new Map(); this.visible = idx === 0;
+      this.el = document.createElement('div'); this.el.className = 'pane';
+      this.el.innerHTML = `
+        <button class="chip"><span class="fname"></span><span class="count"></span> ▾</button>
+        <div class="feed"></div>
+        <div class="pempty"><h2>Nothing here yet</h2><p></p><button class="pill primary">Add videos</button></div>
+        <div class="mini-layer"></div>
+        <div class="mini-controls">
+          <button data-act="next" aria-label="Next video">${icons.next}</button>
+          <button data-act="sound" aria-label="Sound">${icons.soundOff}</button>
+          <button data-act="swap" aria-label="Swap with big screen">${icons.swap}</button>
+          <button data-act="folder" aria-label="Choose folder">${icons.folder}</button>
+          <button data-act="smaller" aria-label="Smaller">−</button>
+          <button data-act="bigger" aria-label="Bigger">+</button>
+        </div>
+        <div class="mini-handle" data-pos="bl" aria-label="Drag to resize"></div>
+        <div class="mini-name"></div>`;
+      this.feed = this.el.querySelector('.feed');
+      this.empty = this.el.querySelector('.pempty');
+      this.el.querySelector('.chip').onclick = () => folderSheet(this);
+      this.empty.querySelector('button').onclick = () => pickInto(this.folder);
+      this.observer = new IntersectionObserver(es => this.onIntersect(es), { root: this.feed, threshold: [0, 0.6] });
+      panesEl.appendChild(this.el);
+    }
+    get folder() { return settings.paneFolders[this.idx]; }
+    set folder(f) { settings.paneFolders[this.idx] = f; save(); }
+    items() { return videos.filter(v => v.folder === this.folder); }
+    current() { return this.feed.children[Math.round(this.feed.scrollTop / Math.max(1, this.feed.clientHeight))]; }
+
+    onIntersect(entries) {
+      entries.forEach(e => {
+        const v = e.target.querySelector('video'); if (!v) return;
+        if (this.visible && e.isIntersecting && e.intersectionRatio > 0.6) {
+          this.attach(e.target);
+          v.loop = !settings.auto;
+          v.currentTime = 0;
+          this.play(v, e.target);
+          [e.target.previousElementSibling, e.target.nextElementSibling].forEach(s => s && this.attach(s));
+        } else v.pause();
+      });
+      this.releaseFar();
+    }
+    attach(slide) {
+      const v = slide.querySelector('video'); if (v.src) return;
+      const item = videos.find(x => x.id === slide.dataset.id); if (!item) return;
+      let url = this.urls.get(item.id);
+      if (!url) { url = URL.createObjectURL(item.blob); this.urls.set(item.id, url); }
+      v.src = url;
+    }
+    detach(slide) {
+      const v = slide.querySelector('video');
+      if (v && v.src) { v.pause(); v.removeAttribute('src'); v.load(); }
+      const id = slide.dataset.id;
+      if (this.urls.has(id)) { URL.revokeObjectURL(this.urls.get(id)); this.urls.delete(id); }
+    }
+    releaseFar() {   // keep memory low: only the current video and its neighbours are loaded
+      const cur = Math.round(this.feed.scrollTop / Math.max(1, this.feed.clientHeight));
+      [...this.feed.children].forEach((s, i) => { if (Math.abs(i - cur) > 1) this.detach(s); });
+    }
+    play(v, slide) {   // play with sound if allowed; if the phone blocks it, fall back to muted
+      v.muted = this.muted;
+      const p = v.play(); if (!p) return;
+      p.then(() => slide.classList.remove('paused')).catch(() => {
+        if (!v.muted) {
+          v.muted = true; this.muted = true; this.applyMute();
+          v.play().then(() => { slide.classList.remove('paused'); toast('Tap for sound', 1200); })
+                  .catch(() => slide.classList.add('paused'));
+        } else slide.classList.add('paused');
+      });
+    }
+    applyMute() {
+      const ms = this.el.querySelector('.mini-controls [data-act="sound"]');
+      ms.innerHTML = this.muted ? icons.soundOff : icons.soundOn; ms.classList.toggle('on', !this.muted);
+      this.feed.querySelectorAll('video').forEach(v => v.muted = this.muted);
+      this.feed.querySelectorAll('.sound').forEach(b => { b.innerHTML = this.muted ? icons.soundOff : icons.soundOn; b.classList.toggle('on', !this.muted); });
+    }
+    goNext(slide) {
+      const next = slide.nextElementSibling || this.feed.firstElementChild;   // wrap to the start at the end
+      if (!next || next === slide) { const v = slide.querySelector('video'); v.currentTime = 0; this.play(v, slide); return; }
+      this.attach(next);
+      this.feed.scrollTo({ top: next.offsetTop, behavior: 'smooth' });
+    }
+
+    render(keepId) {
+      this.observer.disconnect();
+      [...this.feed.children].forEach(s => this.detach(s));
+      this.feed.innerHTML = '';
+      if (!folders.some(f => f.id === this.folder)) this.folder = folders[0].id;
+
+      const items = this.items();
+      const ids = new Set(items.map(v => v.id));
+      this.order = this.order.filter(id => ids.has(id));
+      const fresh = items.filter(v => !this.order.includes(v.id)).sort((a, b) => b.added - a.added).map(v => v.id);
+      this.order = fresh.concat(this.order);
+
+      this.el.querySelector('.fname').textContent = folderName(this.folder);
+      this.el.querySelector('.mini-name').textContent = `${folderName(this.folder)} · ${items.length}`;
+      this.el.querySelector('.count').textContent = items.length;
+      this.empty.style.display = items.length ? 'none' : 'flex';
+      this.empty.querySelector('p').textContent = `Add videos to "${folderName(this.folder)}", or tap the folder name to switch folders.`;
+      if (!this.visible) return;
+
+      const byId = Object.fromEntries(items.map(v => [v.id, v]));
+      this.order.forEach(id => this.feed.appendChild(this.slide(byId[id])));
+      if (keepId) { const i = this.order.indexOf(keepId); if (i >= 0) this.feed.scrollTop = i * this.feed.clientHeight; }
+      else this.feed.scrollTop = 0;
+      [...this.feed.children].forEach(s => this.observer.observe(s));
+    }
+
+    slide(item) {
+      const s = document.createElement('section');
+      s.className = 'slide'; s.dataset.id = item.id;
+      s.innerHTML = `
+        <video playsinline preload="metadata"></video>
+        <div class="pause-icon"></div>
+        <div class="meta"><b></b><span></span></div>
+        <div class="rail">
+          <button class="like ${item.liked ? 'liked' : ''}" aria-label="Favourite">${icons.heart}</button>
+          <button class="sound ${this.muted ? '' : 'on'}" aria-label="Sound">${this.muted ? icons.soundOff : icons.soundOn}</button>
+          <button class="move" aria-label="Move to folder">${icons.folder}</button>
+          <button class="delete" aria-label="Delete">${icons.trash}</button>
+        </div>
+        <div class="progress"><div></div></div>`;
+      s.querySelector('.meta b').textContent = niceName(item.name);
+      s.querySelector('.meta span').textContent = `${fmtSize(item.size)} · added ${new Date(item.added).toLocaleDateString()}`;
+      const v = s.querySelector('video'), bar = s.querySelector('.progress > div');
+      v.loop = !settings.auto;
+      v.addEventListener('timeupdate', () => { if (v.duration) bar.style.width = (v.currentTime / v.duration * 100) + '%'; });
+      v.addEventListener('ended', () => { if (settings.auto) this.goNext(s); });
+
+      // tap = pause/play (a tap on a muted pane turns its sound on); double tap = favourite
+      let lastTap = 0, tapTimer;
+      v.addEventListener('click', () => {
+        const now = Date.now();
+        if (now - lastTap < 280) { clearTimeout(tapTimer); toggleLike(item, s, true); lastTap = 0; return; }
+        lastTap = now;
+        tapTimer = setTimeout(() => {
+          if (this.muted) { setSound(this, true); this.play(v, s); return; }
+          if (v.paused) this.play(v, s); else { v.pause(); s.classList.add('paused'); }
+        }, 280);
+      });
+      s.querySelector('.like').onclick = () => toggleLike(item, s);
+      s.querySelector('.sound').onclick = () => setSound(this, this.muted);
+      s.querySelector('.move').onclick = () => moveSheet(item, this);
+      s.querySelector('.delete').onclick = () => sheet('Delete this video?',
+        `"${niceName(item.name)}" will be removed from the app. The original in your Photos isn't touched.`,
+        [{ label: 'Cancel' }, { label: 'Delete', primary: true, onClick: () => removeVideo(item.id) }]);
+      return s;
+    }
+  }
+
+  const panes = [new Pane(0), new Pane(1)];
+  const visiblePanes = () => panes.filter(p => p.visible);
+  function renderAll() { panes.forEach(p => { const cur = p.current(); p.render(cur && cur.dataset.id); }); }
+  function renderFolder(folderId) { panes.forEach(p => { if (p.folder === folderId) { const cur = p.current(); p.render(cur && cur.dataset.id); } }); }
+
+  // sound plays from one side at a time so the two videos don't talk over each other
+  function setSound(pane, on) {
+    pane.muted = !on;
+    if (on) panes.forEach(p => { if (p !== pane && !p.muted) { p.muted = true; p.applyMute(); } });
+    pane.applyMute();
+    if (on) { const cur = pane.current(); const v = cur && cur.querySelector('video'); if (v && v.paused) pane.play(v, cur); }
+    toast(on ? (settings.dual ? `Sound: ${sideName(pane)}` : 'Sound on') : 'Sound off', 900);
+  }
+  function sideName(pane) {
+    const names = { side: ['left', 'right'], stack: ['top', 'bottom'], float: ['big screen', 'small screen'] };
+    return (names[settings.layout] || names.side)[pane.idx];
+  }
+
+  // ---------- floating mini screen: drag to move, pinch or corner handle to resize ----------
+  const mini = { x: 0, y: 0 };
+  const MINI_MIN = 90;
+  const presetSmall = () => Math.min(innerWidth * 0.32, 200);
+  const presetLarge = () => Math.min(innerWidth * 0.6, 420);
+  function topLimit() { return (parseFloat(getComputedStyle($('topbar')).paddingTop) || 10) + 46; }
+  function miniMaxW() { return Math.max(MINI_MIN, Math.min(innerWidth - 24, (innerHeight - topLimit() - 32) * 9 / 16)); }
+  function miniBounds() {
+    const el = panes[1].el, w = el.offsetWidth, h = el.offsetHeight, m = 12;
+    return { minX: m, maxX: innerWidth - w - m, minY: topLimit(), maxY: innerHeight - h - m - 20, w, h };
+  }
+  function placeMini(x, y, animate) {
+    const el = panes[1].el;
+    el.classList.toggle('snapping', !!animate);
+    mini.x = x; mini.y = y;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+  }
+  function snapMini(corner, animate) {
+    const b = miniBounds();
+    settings.miniCorner = corner; save();
+    placeMini(corner[1] === 'l' ? b.minX : b.maxX, corner[0] === 't' ? b.minY : b.maxY, animate);
+    // the resize handle sits on the corner that faces the middle of the screen
+    const h = panes[1].el.querySelector('.mini-handle');
+    h.dataset.pos = (corner[0] === 't' ? 'b' : 't') + (corner[1] === 'l' ? 'r' : 'l');
+  }
+  // set the mini screen's width (height follows at 9:16), keeping it pinned to its corner
+  function setMiniWidth(w, opts = {}) {
+    const p = panes[1], i = Math.round(p.feed.scrollTop / Math.max(1, p.feed.clientHeight));
+    w = Math.round(Math.min(Math.max(w, MINI_MIN), miniMaxW()));
+    settings.miniW = w;
+    if (!opts.live) save();
+    panesEl.style.setProperty('--mini-w', w + 'px');
+    snapMini(settings.miniCorner || 'tr', !!opts.animate);
+    p.feed.scrollTop = i * p.feed.clientHeight;
+    return w;
+  }
+  (() => {
+    const p = panes[1], el = p.el, layer = el.querySelector('.mini-layer'), controls = el.querySelector('.mini-controls');
+    const handle = el.querySelector('.mini-handle');
+    let start = null, dragging = false, lastTap = 0, tapTimer, hideTimer;
+    const pts = new Map(); let pinch = null;
+    const showControls = () => {
+      controls.classList.add('show'); clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => controls.classList.remove('show'), 3000);
+    };
+    const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+
+    layer.addEventListener('pointerdown', e => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { layer.setPointerCapture(e.pointerId); } catch (_) {}
+      if (pts.size === 2) {           // second finger down: pinch to resize
+        pinch = { d: dist(), w: el.offsetWidth }; start = null; dragging = false; clearTimeout(tapTimer); lastTap = 0;
+        return;
+      }
+      start = { px: e.clientX, py: e.clientY, x: mini.x, y: mini.y }; dragging = false;
+    });
+    layer.addEventListener('pointermove', e => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size === 2) { setMiniWidth(pinch.w * dist() / Math.max(1, pinch.d), { live: true }); return; }
+      if (!start) return;
+      const dx = e.clientX - start.px, dy = e.clientY - start.py;
+      if (!dragging && Math.hypot(dx, dy) > 6) { dragging = true; layer.style.cursor = 'grabbing'; }
+      if (dragging) {
+        const b = miniBounds();
+        placeMini(Math.min(Math.max(start.x + dx, b.minX - 30), b.maxX + 30), Math.min(Math.max(start.y + dy, b.minY - 30), b.maxY + 30), false);
+      }
+    });
+    const end = e => {
+      pts.delete(e.pointerId);
+      if (pinch) { if (pts.size === 0) { pinch = null; setMiniWidth(settings.miniW, { animate: true }); } return; }
+      if (!start) return;
+      layer.style.cursor = '';
+      if (dragging) {
+        const b = miniBounds();
+        const cx = mini.x + b.w / 2, cy = mini.y + b.h / 2;
+        snapMini((cy < innerHeight / 2 ? 't' : 'b') + (cx < innerWidth / 2 ? 'l' : 'r'), true);
+      } else {
+        // tap = show controls, double tap = jump between small and large
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          clearTimeout(tapTimer); lastTap = 0;
+          const w = el.offsetWidth, mid = (presetSmall() + presetLarge()) / 2;
+          setMiniWidth(w < mid ? presetLarge() : presetSmall(), { animate: true });
+        } else { lastTap = now; tapTimer = setTimeout(showControls, 300); }
+      }
+      start = null; dragging = false;
+    };
+    layer.addEventListener('pointerup', end);
+    layer.addEventListener('pointercancel', end);
+
+    // corner handle: drag away from the corner to grow, toward it to shrink
+    let hs = null;
+    handle.addEventListener('pointerdown', e => {
+      e.stopPropagation(); e.preventDefault();
+      hs = { px: e.clientX, py: e.clientY, w: el.offsetWidth };
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      handle.classList.add('active');
+    });
+    handle.addEventListener('pointermove', e => {
+      if (!hs) return;
+      const c = settings.miniCorner || 'tr';
+      const sx = c[1] === 'r' ? -1 : 1, sy = c[0] === 't' ? 1 : -1;
+      const byX = sx * (e.clientX - hs.px), byY = sy * (e.clientY - hs.py) * 9 / 16;
+      setMiniWidth(hs.w + (Math.abs(byX) > Math.abs(byY) ? byX : byY), { live: true });
+    });
+    const hend = () => { if (!hs) return; hs = null; handle.classList.remove('active'); setMiniWidth(settings.miniW); };
+    handle.addEventListener('pointerup', hend);
+    handle.addEventListener('pointercancel', hend);
+
+    controls.addEventListener('click', e => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      showControls();
+      const act = btn.dataset.act, cur = p.current();
+      if (act === 'next' && cur) p.goNext(cur);
+      if (act === 'sound') setSound(p, p.muted);
+      if (act === 'swap') swapScreens();
+      if (act === 'folder') folderSheet(p);
+      if (act === 'bigger') setMiniWidth(el.offsetWidth * 1.25, { animate: true });
+      if (act === 'smaller') setMiniWidth(el.offsetWidth / 1.25, { animate: true });
+    });
+  })();
+
+  function swapScreens() {
+    const [a, b] = panes;
+    const ia = a.current() && a.current().dataset.id, ib = b.current() && b.current().dataset.id;
+    [settings.paneFolders[0], settings.paneFolders[1]] = [settings.paneFolders[1], settings.paneFolders[0]];
+    [a.order, b.order] = [b.order, a.order];
+    [a.muted, b.muted] = [b.muted, a.muted];
+    save();
+    a.render(ib); b.render(ia); a.applyMute(); b.applyMute();
+    toast('Swapped', 800);
+  }
+  addEventListener('resize', () => { if (settings.dual && settings.layout === 'float') setMiniWidth(settings.miniW || presetSmall()); });
+
+  async function toggleLike(item, slide, onlyOn) {
+    if (onlyOn && item.liked) { toast('♥', 600); return; }
+    item.liked = !item.liked;
+    document.querySelectorAll(`.slide[data-id="${item.id}"] .like`).forEach(b => b.classList.toggle('liked', item.liked));
+    if (item.liked) toast('♥ Added to favourites', 900);
+    try { await put(item); } catch (e) {}
+  }
+
+  async function removeVideo(id) {
+    const item = videos.find(v => v.id === id); if (!item) return;
+    try { await del(id); } catch (e) { toast('Could not delete'); return; }
+    videos = videos.filter(v => v.id !== id);
+    panes.forEach(p => {
+      if (p.folder !== item.folder) return;
+      const i = p.order.indexOf(id); const cur = p.current();
+      const keep = cur && cur.dataset.id === id ? (p.order[i + 1] || p.order[i - 1]) : cur && cur.dataset.id;
+      p.render(keep);
+    });
+    toast('Deleted');
+  }
+
+  function moveSheet(item, pane) {
+    const others = folders.filter(f => f.id !== item.folder);
+    sheet('Move to folder', `"${niceName(item.name)}" is in ${folderName(item.folder)}.`,
+      others.map(f => ({ label: f.name, onClick: async () => {
+        const from = item.folder;
+        item.folder = f.id;
+        try { await put(item); } catch (e) { item.folder = from; toast('Could not move'); return; }
+        panes.forEach(p => { if (p.folder === from || p.folder === f.id) { const cur = p.current(); const i = p.order.indexOf(item.id);
+          p.render(cur && cur.dataset.id === item.id ? (p.order[i + 1] || p.order[i - 1]) : cur && cur.dataset.id); } });
+        toast(`Moved to ${f.name}`);
+      } })).concat([{ label: '+ New folder', onClick: () => newFolder(id => moveTo(item, id)) }]));
+  }
+  async function moveTo(item, folderId) {
+    const from = item.folder; item.folder = folderId;
+    try { await put(item); } catch (e) { item.folder = from; return; }
+    renderFolder(from); renderFolder(folderId); toast(`Moved to ${folderName(folderId)}`);
+  }
+
+  // ---------- folders ----------
+  function folderSheet(pane) {
+    const where = settings.dual ? ` (${sideName(pane)})` : '';
+    sheet('Show folder' + where, '', folders.map(f => ({
+      label: `${f.name} · ${videos.filter(v => v.folder === f.id).length}`, current: f.id === pane.folder,
+      onClick: () => { if (f.id !== pane.folder) { pane.folder = f.id; pane.order = []; pane.render(); } }
+    })).concat([
+      { label: '+ New folder', onClick: () => newFolder(id => { pane.folder = id; pane.order = []; pane.render(); }) },
+      { label: 'Rename / delete', onClick: () => editFolder(pane.folder) }
+    ]));
+  }
+  function newFolder(then) {
+    sheet('New folder', '', [{ label: 'Cancel' }, { label: 'Create', primary: true, onClick: name => {
+      const f = { id: 'f' + Date.now().toString(36), name: name || `Folder ${folders.length + 1}` };
+      folders.push(f); save(); then && then(f.id);
+    } }], { placeholder: `Folder ${folders.length + 1}` });
+  }
+  function editFolder(id) {
+    const count = videos.filter(v => v.folder === id).length;
+    const buttons = [{ label: 'Cancel' }];
+    if (folders.length > 1) buttons.push({ label: 'Delete folder', onClick: () => {
+      if (count) { toast(`Move or delete its ${count} video${count > 1 ? 's' : ''} first`, 2500); return; }
+      folders = folders.filter(f => f.id !== id); save(); renderAll(); toast('Folder deleted');
+    } });
+    buttons.push({ label: 'Save', primary: true, onClick: name => {
+      if (!name) return; folders.find(f => f.id === id).name = name; save(); renderAll();
+    } });
+    sheet('Rename folder', count ? `${count} video${count > 1 ? 's' : ''} inside.` : 'This folder is empty.', buttons, { value: folderName(id) });
+  }
+
+  // ---------- adding videos ----------
+  let pendingFolder = null;
+  function pickInto(folderId) { pendingFolder = folderId; picker.value = ''; picker.click(); }
+  $('addBtn').onclick = () => {
+    const def = panes[0].folder;
+    sheet('Add videos to…', '', folders.map(f => ({
+      label: f.name, primary: f.id === def, onClick: () => pickInto(f.id)
+    })).concat([{ label: '+ New folder', onClick: () => newFolder(id => pickInto(id)) }]));
+  };
+
+  picker.addEventListener('change', async () => {
+    const files = [...picker.files].filter(f => f.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(f.name));
+    if (!files.length) return;
+    if (!db) { toast('Storage is not available in this browser'); return; }
+    const folderId = pendingFolder || panes[0].folder;
+    loading.style.display = 'flex';
+    let added = 0;
+    for (const f of files) {
+      loading.textContent = `Saving ${added + 1} of ${files.length}…`;
+      const item = {
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+        name: f.name, type: f.type, size: f.size, added: Date.now() + added, liked: false, folder: folderId,
+        blob: new Blob([await f.arrayBuffer()], { type: f.type || 'video/mp4' })
+      };
+      try { await put(item); videos.push(item); added++; }
+      catch (e) { toast('Phone storage is full. Some videos were not saved.', 3500); break; }
+    }
+    loading.style.display = 'none';
+    if (added) {
+      // show the folder that just got videos, if no pane is showing it
+      if (!visiblePanes().some(p => p.folder === folderId)) { panes[0].folder = folderId; panes[0].order = []; }
+      panes.forEach(p => { if (p.folder === folderId) p.render(); });
+      toast(`Added ${added} video${added > 1 ? 's' : ''} to ${folderName(folderId)}`);
+      try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+    }
+  });
+
+  // ---------- top bar ----------
+  const autoBtn = $('autoBtn'), splitBtn = $('splitBtn');
+  function setAuto(on, quiet) {
+    settings.auto = on; save();
+    autoBtn.classList.toggle('on', on); autoBtn.setAttribute('aria-pressed', String(on));
+    document.querySelectorAll('.slide video').forEach(v => v.loop = !on);
+    if (!quiet) toast(on ? 'Auto-scroll on: next video plays when one ends' : 'Auto-scroll off: videos loop', 1800);
+  }
+  autoBtn.onclick = () => setAuto(!settings.auto);
+
+  function applyLayout() {
+    panesEl.classList.toggle('dual', settings.dual);
+    panesEl.classList.toggle('stack', settings.layout === 'stack');
+    panesEl.classList.toggle('float', settings.layout === 'float');
+    if (settings.dual && settings.layout === 'float') requestAnimationFrame(() => setMiniWidth(settings.miniW || (settings.miniBig ? presetLarge() : presetSmall())));
+    else { panes[1].el.style.transform = ''; panes[1].el.classList.remove('snapping'); }
+    document.body.classList.toggle('fill', settings.fill);
+    splitBtn.classList.toggle('on', settings.dual); splitBtn.setAttribute('aria-pressed', String(settings.dual));
+    const wasVisible = panes[1].visible;
+    panes[1].visible = settings.dual;
+    if (!settings.dual) panes[1].muted = true;
+    if (wasVisible !== panes[1].visible) panes[1].render();
+    // panes changed size: snap each back to its current video
+    requestAnimationFrame(() => visiblePanes().forEach(p => {
+      const i = p.order.indexOf((p.feed.children[p._lastIdx] || {}).dataset?.id);
+      if (i >= 0) p.feed.scrollTop = i * p.feed.clientHeight;
+    }));
+  }
+  function setSplit(on) {
+    visiblePanes().forEach(p => p._lastIdx = Math.round(p.feed.scrollTop / Math.max(1, p.feed.clientHeight)));
+    settings.dual = on;
+    // when turning split on, show a different folder on the second side if there is one
+    if (on && settings.paneFolders[1] === settings.paneFolders[0]) {
+      const other = folders.find(f => f.id !== settings.paneFolders[0]); if (other) settings.paneFolders[1] = other.id;
+    }
+    save(); applyLayout();
+    if (on) toast('Split screen: tap a folder name to choose what each side plays', 2400);
+  }
+  splitBtn.onclick = () => setSplit(!settings.dual);
+
+  function setLayout(layout) {
+    visiblePanes().forEach(p => p._lastIdx = Math.round(p.feed.scrollTop / Math.max(1, p.feed.clientHeight)));
+    settings.layout = layout; save(); applyLayout();
+    if (layout === 'float') toast('Drag the small screen to move it. Pinch it or drag its corner to resize. Tap for controls.', 3000);
+  }
+  function layoutSheet() {
+    sheet('Split layout', 'How the two screens are arranged.', [
+      { label: 'Side by side', current: settings.layout === 'side', onClick: () => setLayout('side') },
+      { label: 'Top & bottom', current: settings.layout === 'stack', onClick: () => setLayout('stack') },
+      { label: 'Floating mini screen', current: settings.layout === 'float', onClick: () => setLayout('float') }
+    ]);
+  }
+
+  function shuffle() {
+    visiblePanes().forEach(p => {
+      for (let i = p.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p.order[i], p.order[j]] = [p.order[j], p.order[i]]; }
+      p.render();
+    });
+    toast('Shuffled');
+  }
+  function favouritesFirst() {
+    const liked = id => (videos.find(v => v.id === id) || {}).liked ? 1 : 0;
+    visiblePanes().forEach(p => { p.order.sort((a, b) => liked(b) - liked(a)); p.render(); });
+    toast('Favourites first');
+  }
+  $('menuBtn').onclick = () => {
+    const total = videos.reduce((s, v) => s + v.size, 0);
+    const buttons = [
+      { label: 'Shuffle', onClick: shuffle },
+      { label: 'Faves first', onClick: favouritesFirst },
+      { label: settings.fill ? 'Fit to screen' : 'Fill screen', onClick: () => { settings.fill = !settings.fill; save(); applyLayout(); } }
+    ];
+    if (settings.dual) buttons.push({ label: 'Split layout', onClick: layoutSheet });
+    buttons.push({ label: 'Folders', onClick: () => folderSheet(panes[0]) });
+    sheet('Options', `${videos.length} videos in ${folders.length} folders · ${fmtSize(total)} on this phone`, buttons);
+  };
+
+  // keyboard (for testing on a computer)
+  document.addEventListener('keydown', e => {
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    const f = panes[0].feed;
+    if (e.key === 'ArrowDown') f.scrollBy({ top: f.clientHeight, behavior: 'smooth' });
+    if (e.key === 'ArrowUp') f.scrollBy({ top: -f.clientHeight, behavior: 'smooth' });
+  });
+
+  // ---------- install as an app ----------
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  let inFrame = true; try { inFrame = window.self !== window.top; } catch (e) {}
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let dismissed = false; try { dismissed = localStorage.getItem('reels-install-dismissed') === '1'; } catch (e) {}
+  if (isIOS && !standalone && !inFrame && !dismissed) $('install').style.display = 'block';
+  $('installClose').onclick = () => { $('install').style.display = 'none'; try { localStorage.setItem('reels-install-dismissed', '1'); } catch (e) {} };
+  try { if ('serviceWorker' in navigator && !inFrame && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) {}
+
+  // ---------- start ----------
+  setAuto(settings.auto, true);
+  (async () => {
+    try {
+      db = await openDB();
+      videos = await getAll();
+      videos.forEach(v => { if (!v.folder || !folders.some(f => f.id === v.folder)) v.folder = folders[0].id; });  // older videos go to Folder 1
+    } catch (e) {
+      toast('This browser blocks storage, so videos won\'t be saved between visits.', 4000);
+    }
+    applyLayout();
+    panes.forEach(p => p.render());
+  })();
+})();
+</script>
+</body>
+</html>
